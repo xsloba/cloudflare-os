@@ -988,6 +988,10 @@ export const SUGGESTED_MODELS: Record<
     "@cf/zai-org/glm-5.2": {
       name: "GLM 5.2 (Workers AI)", contextWindow: 262144, outputLimit: WORKERS_AI_OUTPUT_LIMIT,
     },
+    "@cf/google/gemma-4-26b-a4b-it": {
+      name: "Gemma 4 26B (Workers AI)", contextWindow: 256000,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
   },
   "anthropic": {
     // TODO: Include Fable -- but we need an admin option to disable it, since many orgs don't
