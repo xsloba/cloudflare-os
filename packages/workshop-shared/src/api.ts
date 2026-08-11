@@ -992,6 +992,26 @@ export const SUGGESTED_MODELS: Record<
       name: "Gemma 4 26B (Workers AI)", contextWindow: 256000,
       outputLimit: WORKERS_AI_OUTPUT_LIMIT,
     },
+    "@cf/meta/llama-4-scout-17b-16e-instruct": {
+      name: "Llama 4 Scout (Workers AI)", contextWindow: 131000,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
+    "@cf/mistralai/mistral-small-3.1-24b-instruct": {
+      name: "Mistral Small 3.1 24B (Workers AI)", contextWindow: 128000,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
+    "@cf/openai/gpt-oss-20b": {
+      name: "GPT OSS 20B (Workers AI)", contextWindow: 128000,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
+    "@cf/ibm-granite/granite-4.0-h-micro": {
+      name: "Granite 4.0 Micro (Workers AI)", contextWindow: 131000,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
+    "@cf/nvidia/nemotron-3-120b-a12b": {
+      name: "Nemotron 3 120B (Workers AI)", contextWindow: 256000,
+      outputLimit: WORKERS_AI_OUTPUT_LIMIT,
+    },
   },
   "anthropic": {
     // TODO: Include Fable -- but we need an admin option to disable it, since many orgs don't
