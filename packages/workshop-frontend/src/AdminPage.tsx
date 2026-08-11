@@ -3,7 +3,7 @@ import { RpcStub } from 'capnweb'
 import { Switch, Textarea, Input, Button, Tabs, useKumoToastManager } from '@cloudflare/kumo'
 import { Hexagon, ShieldWarning, UserPlus } from '@phosphor-icons/react'
 import { useAuthenticatedApi } from './AuthContext'
-import { AdminAiModel, AdminApi, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
+import { AdminAiModel, AdminApi, AdminUserView, AdminFormat, AdminResourceVendor, AmbientGatekeeperMode, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_ANNOUNCEMENT_LENGTH, MAX_SITE_NAME_LENGTH, DEFAULT_SITE_NAME, BannerColor, BANNER_COLORS, DEFAULT_BANNER_COLOR } from '@gadgets/workshop-shared/api'
 import { applyAccentColor, DEFAULT_ACCENT_COLOR } from './theme'
 import { cacheBustSiteLogoUrl, prepareSiteLogo } from './siteLogoUtils'
 import SiteLogo from './components/SiteLogo'
@@ -83,6 +83,11 @@ export default function AdminPage() {
   // AI Gateway built-in models with their enabled state (empty outside AI Gateway mode).
   const [aiModels, setAiModels] = useState<AdminAiModel[]>([])
 
+  // Deployment user directory; null until the Users tab is first opened.
+  const [users, setUsers] = useState<AdminUserView[] | null>(null)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState('')
+
   const [activeTab, setActiveTab] = useState('general')
 
   // Promoted output formats, in menu order (see AdminFormatsPanel).
@@ -153,6 +158,27 @@ export default function AdminPage() {
     applyAccentColor(accentDraft)
     return () => { applyAccentColor(savedAccent) }
   }, [accentDraft, savedAccent])
+
+  // Load the user directory when the Users tab is first opened (and on demand via refresh).
+  const loadUsers = async () => {
+    if (!admin) return
+    setUsersLoading(true)
+    setUsersError('')
+    try {
+      setUsers(await admin.api.listUsers())
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to load users.')
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'users' && admin && users === null && !usersLoading) {
+      void loadUsers()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, admin])
 
   // Re-fetch just the gatekeeper/resource and AI-model state (used to revert an optimistic toggle
   // on error). Leaves the General-tab drafts untouched.
@@ -429,6 +455,7 @@ export default function AdminPage() {
           { value: 'general', label: 'General' },
           { value: 'gatekeepers', label: 'Gatekeepers' },
           { value: 'models', label: 'AI models' },
+          { value: 'users', label: 'Users' },
           { value: 'formats', label: 'Formats' },
           { value: 'access', label: 'Access' },
         ]}
@@ -1033,6 +1060,77 @@ export default function AdminPage() {
               )
             })}
           </div>
+        </div>
+      )}
+
+      {/* Deployment user directory */}
+      {activeTab === 'users' && (
+        <div className="bg-kumo-elevated border border-kumo-line rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="flex-1 text-lg font-semibold text-kumo-strong">Users</h2>
+            <Button size="sm" variant="secondary" disabled={usersLoading} onClick={() => void loadUsers()}>
+              {usersLoading ? 'Refreshing…' : 'Refresh'}
+            </Button>
+          </div>
+          <p className="text-sm text-kumo-subtle mb-5">
+            Everyone who has signed in to this deployment, with their login activity. Users appear
+            here on their first sign-in after login tracking was deployed. This list is visibility
+            only &mdash; who may sign in is decided by the deployment&rsquo;s authentication
+            configuration (for example, the Cloudflare Access policy).
+          </p>
+
+          {usersError && <p className="text-sm text-kumo-danger mb-3">{usersError}</p>}
+          {users !== null && users.length === 0 && !usersLoading && (
+            <p className="text-sm text-kumo-subtle">
+              No users recorded yet. The directory fills in as users sign in.
+            </p>
+          )}
+
+          {users !== null && users.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-kumo-subtle border-b border-kumo-line">
+                    <th className="py-2 pr-4 font-medium">User</th>
+                    <th className="py-2 pr-4 font-medium">Last login</th>
+                    <th className="py-2 pr-4 font-medium">First login</th>
+                    <th className="py-2 pr-4 font-medium text-right">Logins</th>
+                    <th className="py-2 pr-0 font-medium text-right">Workspaces</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id} className="border-b border-kumo-line/60">
+                      <td className="py-2.5 pr-4">
+                        <span className={`block font-medium ${user.unavailable ? 'text-kumo-subtle' : 'text-kumo-default'}`}>
+                          {user.name}
+                          {user.admin && (
+                            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-subtle border border-kumo-line align-middle">
+                              admin
+                            </span>
+                          )}
+                          {user.unavailable && (
+                            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-kumo-tint text-kumo-danger border border-kumo-line align-middle">
+                              unavailable
+                            </span>
+                          )}
+                        </span>
+                        <span className="block text-xs text-kumo-subtle font-mono">{user.id}</span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-kumo-default whitespace-nowrap">
+                        {user.lastLogin ? new Date(user.lastLogin).toLocaleString() : '—'}
+                      </td>
+                      <td className="py-2.5 pr-4 text-kumo-subtle whitespace-nowrap">
+                        {user.firstLogin ? new Date(user.firstLogin).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="py-2.5 pr-4 text-right text-kumo-default">{user.loginCount}</td>
+                      <td className="py-2.5 pr-0 text-right text-kumo-default">{user.workspaces}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

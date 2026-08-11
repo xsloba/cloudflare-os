@@ -1,4 +1,4 @@
-import { AdminAiModel, AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { AdminAiModel, AdminApi, AdminFormat, AdminFormatPatch, AdminResourceVendor, AdminSettingsView, AdminUserView, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_SITE_NAME_LENGTH, SUGGESTED_MODELS, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget } from 'capnweb';
@@ -17,12 +17,38 @@ import { FORMAT_BLUEPRINTS } from './generated/format-blueprints.js';
 
 const logger = createWorkshopLogger("workshop.admin.settings");
 
+// The deployment ADMINS binding: a JSON array, or (via .env files, which can't express JSON
+// bindings) a string that parses as one. Same semantics as the session's isAdmin check; lenient
+// here because a directory listing shouldn't fail outright over a malformed admin list.
+function parseAdminsList(env: Cloudflare.Env): string[] {
+  let admins: unknown = env.ADMINS;
+  if (typeof admins === "string") {
+    try { admins = JSON.parse(admins); } catch { return []; }
+  }
+  return Array.isArray(admins) ? admins.filter((a): a is string => typeof a === "string") : [];
+}
+
+// One user known to the deployment: registered by their own User DO on first tracked login.
+// Login details live in the user's DO; this is just the enumerable index over an otherwise
+// unenumerable DO namespace.
+type DirectoryUserRecord = {
+  // User id: email in Cloudflare Access mode, username with password login. The User DO is
+  // addressed as idFromName(id).
+  id: string;
+  registeredAt: Date;
+};
+
 function makeAdminSettingsStorage(storage: DurableObjectStorage) {
   return createTypedStorage(storage, {
     collections: {
       // Mirror of the currently-featured blueprint public records. The user DO owns the
       // authoritative featured bit; this DO keeps the publishable deployment-wide copy.
       featuredBlueprints: collection<BlueprintPublicInfo>()({
+        primaryKey: 'id',
+      }),
+      // The deployment user directory (see DirectoryUserRecord). Written once per user ever, so
+      // this singleton DO stays off the request hot path.
+      directoryUsers: collection<DirectoryUserRecord>()({
         primaryKey: 'id',
       }),
     },
@@ -440,6 +466,39 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     });
   }
 
+  // Record a user in the deployment directory. Called by the user's own DO on first tracked
+  // login; idempotent so a retry after a partial failure is harmless.
+  async registerUser(id: string): Promise<void> {
+    if (!this.storage.directoryUsers.get(id)) {
+      this.storage.directoryUsers.put({ id, registeredAt: new Date() });
+    }
+  }
+
+  // Every directory user with their login activity, most recently active first. Fans out to each
+  // user's DO for the details (cheap local reads there); a user whose DO cannot be read right now
+  // is reported as unavailable rather than dropped, so the directory never silently shrinks.
+  async listUsers(): Promise<AdminUserView[]> {
+    let admins = new Set(parseAdminsList(this.env));
+    let records = [...this.storage.directoryUsers.list()];
+    let views = await Promise.all(records.map(async (record): Promise<AdminUserView> => {
+      try {
+        let user = this.users.get(this.users.idFromName(record.id));
+        let summary = await user.getAdminUserSummary();
+        return { ...summary, admin: admins.has(record.id) };
+      } catch (err) {
+        logger.warn("failed to read user for the directory listing", {
+          event: "admin.users.read.failed", error: err,
+        });
+        return {
+          id: record.id, name: record.id, loginCount: 0, workspaces: 0,
+          admin: admins.has(record.id), unavailable: true,
+        };
+      }
+    }));
+    views.sort((a, b) => (b.lastLogin ?? "").localeCompare(a.lastLogin ?? ""));
+    return views;
+  }
+
   // Enable/disable a single AI Gateway built-in model atomically (read-modify-write within the DO).
   async setAiModelEnabled(modelId: string, enabled: boolean): Promise<void> {
     await this.#mutateAdminConfig(config => {
@@ -627,6 +686,10 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error(`Unknown built-in model: ${modelId}`);
     }
     return this.admin.setAiModelEnabled(modelId, enabled);
+  }
+
+  listUsers(): Promise<AdminUserView[]> {
+    return this.admin.listUsers();
   }
 
   async setAnnouncement(text: string): Promise<void> {

@@ -664,6 +664,27 @@ export type AdminAiModel = {
   enabled: boolean;
 };
 
+// One user of this deployment, as the admin Users panel sees it. Users appear in the deployment
+// directory on their first sign-in after login tracking deployed, so the list backfills as
+// existing users return.
+export type AdminUserView = {
+  // User id: email in Cloudflare Access mode, username with password login.
+  id: string;
+  // Display name from the user's profile.
+  name: string;
+  // ISO 8601. Unset for accounts whose logins all predate login tracking.
+  firstLogin?: string;
+  lastLogin?: string;
+  // Sign-ins recorded since login tracking deployed.
+  loginCount: number;
+  // Workspaces the user owns.
+  workspaces: number;
+  // Whether the id is on the deployment's ADMINS list.
+  admin: boolean;
+  // The directory has a record but the user's data could not be read just now.
+  unavailable?: boolean;
+};
+
 // A connectable third-party service: its vendor id, display metadata, and the resource types it
 // offers (empty for an auto-provisioning gatekeeper like the Context Library). Returned by both
 // listGatekeeperVendors and listAddableGatekeepers so the connect UI treats both uniformly.
@@ -798,6 +819,11 @@ export interface AdminApi {
   // and refuses new use of it (chats pinned to it must pick another model); user-added custom
   // models are unaffected. Throws for an id that is not a known built-in model.
   setAiModelEnabled(modelId: string, enabled: boolean): Promise<void>;
+
+  // Every user in the deployment directory with their login activity, most recently active first.
+  // Visibility only — who may sign in is decided by the deployment's authentication config
+  // (e.g. the Cloudflare Access policy), not here.
+  listUsers(): Promise<AdminUserView[]>;
 
   // Set the top-bar notice (centered text in the top navigation bar). Pass "" to clear. Rejects over
   // MAX_ANNOUNCEMENT_LENGTH.

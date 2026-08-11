@@ -195,6 +195,14 @@ function makeUserStorage(storage: DurableObjectStorage) {
       preferredModel: <string | null>null,
       onboardingCompleted: false,
 
+      // Login activity for the admin Users panel. ISO 8601; "" until the first tracked login.
+      firstLoginAt: "",
+      lastLoginAt: "",
+      loginCount: 0,
+      // Whether this user has been recorded in the deployment directory (AdminSettings).
+      // Registration retries on later logins after a failure.
+      directoryRegistered: false,
+
       // Set once the user's pre-existing workspaces have been asked to populate the outputs index
       // (see #backfillOutputs()). Workspaces created since push on their own.
       outputsBackfilled: false,
@@ -320,10 +328,58 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
         name: email.split("@")[0],
         id: email,
       });
+      this.#recordLogin(email);
       return true;
     }
 
+    this.#recordLogin(email);
     return false;
+  }
+
+  // Stamp login activity for the admin Users panel and make sure this user appears in the
+  // deployment directory. Directory registration happens once ever; a failed attempt leaves the
+  // flag unset so the next login retries, and never blocks the login itself.
+  #recordLogin(userId: string): void {
+    let now = new Date().toISOString();
+    if (!this.storage.firstLoginAt.get()) {
+      this.storage.firstLoginAt.put(now);
+    }
+    this.storage.lastLoginAt.put(now);
+    this.storage.loginCount.put(this.storage.loginCount.get() + 1);
+
+    if (!this.storage.directoryRegistered.get()) {
+      this.ctx.waitUntil((async () => {
+        await this.ctx.exports.AdminSettings.getByName("").registerUser(userId);
+        this.storage.directoryRegistered.put(true);
+      })().catch((err) => {
+        logger.warn("failed to register user in the deployment directory", {
+          event: "user.directory.register.failed", error: err,
+        });
+      }));
+    }
+  }
+
+  // Everything the admin Users panel shows about this user. Local storage reads only, so the
+  // directory listing can fan out to every user cheaply.
+  async getAdminUserSummary(): Promise<{
+    id: string; name: string; firstLogin?: string; lastLogin?: string;
+    loginCount: number; workspaces: number;
+  }> {
+    let profile = this.storage.profile.get();
+    let workspaces = 0;
+    for (let gadget of this.storage.gadgets.list()) {
+      if (gadget) workspaces++;
+    }
+    let firstLogin = this.storage.firstLoginAt.get();
+    let lastLogin = this.storage.lastLoginAt.get();
+    return {
+      id: profile.id,
+      name: profile.name,
+      ...(firstLogin ? { firstLogin } : {}),
+      ...(lastLogin ? { lastLogin } : {}),
+      loginCount: this.storage.loginCount.get(),
+      workspaces,
+    };
   }
 
   async #newSessionToken(): Promise<string> {
@@ -348,6 +404,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
       return null;
     }
 
+    this.#recordLogin(this.storage.profile.get().id);
     return this.#newSessionToken();
   }
 
@@ -381,6 +438,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
     let passwordHashHash = new Uint8Array(await crypto.subtle.digest('SHA-256', passwordHash));
     this.storage.passwordHashHash.put(passwordHashHash);
 
+    this.#recordLogin(username);
     return this.#newSessionToken();
   }
 
@@ -406,6 +464,7 @@ export class UserDurableObject extends DurableObject<Cloudflare.Env> {
         id: email,
       });
     }
+    this.#recordLogin(email);
     return this.#newSessionToken();
   }
 
