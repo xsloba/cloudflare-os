@@ -192,6 +192,10 @@ const PASSTHROUGH_GATEKEEPER_VARS = {
     "MCP_PORTAL_TRUST_ANNOTATIONS", "MCP_ALLOW_INSECURE",
   ],
   "gatekeeper-mcp": ["MCP_ALLOW_INSECURE"],
+  "gatekeeper-usage": [
+    "USAGE_ACCESS_ISS", "USAGE_ACCESS_AUD", "USAGE_ADMINS",
+    "USAGE_GATEWAY_ACCOUNT_ID", "USAGE_GATEWAY_NAME", "USAGE_GATEWAY_API_TOKEN",
+  ],
 };
 
 for (const gk of gatekeepers) {
