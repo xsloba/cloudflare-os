@@ -37,6 +37,8 @@ const ATTACHMENT_SUPPORT_BY_PROVIDER = {
   openai: isTextImageOrPdfMime,
   google: isTextImageOrPdfMime,
   cloudflare: isTextOrImageMime,
+  // Grok chat completions accept images but have no native document input.
+  grok: isTextOrImageMime,
   ollama: isTextOrImageMime,
 } satisfies Record<AiModelProvider, (mimeType: string) => boolean>;
 
